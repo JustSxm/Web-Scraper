@@ -1,3 +1,5 @@
+from cmath import e
+import json
 import scrapy
 
 from Ad import Ad
@@ -18,7 +20,7 @@ class Facebook(scrapy.Spider):
         self.exclusions = config["DEFAULT"]["Exclusions"].split(" ")
         self.strictmode = config["DEFAULT"].getboolean("StrictMode")
         self.start_urls = ["https://www.facebook.com/marketplace/" + city_id + "/search?minPrice=" + min_price +
-                           "&maxPrice=" + max_price + "&daysSinceListed=1" + "&sortBy=" + sort_by + "&query=" + keywords]
+                           "&maxPrice=" + max_price + "&daysSinceListed=10" + "&sortBy=" + sort_by + "&query=" + keywords]
         print_scraper("FACEBOOK", "Started !")
         super().__init__(**kwargs)
 
@@ -26,16 +28,27 @@ class Facebook(scrapy.Spider):
         print_scraper("FACEBOOK", "Scraping...")
         allAds = []
         
-        flex_selector = response.xpath('//div[@style="max-width:1872px"]/div[2]/div')
-        if(len(flex_selector) == 0):
+        # get all the script elements
+        flex_selector = response.xpath('//*[@id="facebook"]/body/script/text()')
+        
+        ads = []
+        # try to find the right one
+        for script in flex_selector.getall():
+            try:
+                ads = json.loads(script)
+                ads = ads['require'][0][3][0]['__bbox']['require'][0][3][1]['__bbox']['result']['data']['marketplace_search']['feed_units']['edges']
+                break
+            except:
+                pass
+        if(len(ads) == 0):
             print_scraper("FACEBOOK", "No results found")
             return None
         print_scraper("FACEBOOK", "Found ads")
 
-        # each flex item box (each ad)
-        for ads in flex_selector:
+        # parse each json
+        for adJson in ads:
             try:
-                title = ads.css('span::text').getall()[1];
+                title = adJson['node']['listing']['marketplace_listing_title']
 
                 # Skip if title contains any of the exclusion keywords
                 if any(exclusions.lower() in title.lower() for exclusions in self.exclusions):
@@ -47,8 +60,8 @@ class Facebook(scrapy.Spider):
                     
                 ad = Ad()
                 ad["title"] = title
-                ad["price"] = ads.css('span::text').extract_first()
-                ad["link"] = 'https://www.facebook.com' + ads.css('a::attr(href)').extract_first()
+                ad["price"] = adJson['node']['listing']['listing_price']['amount']
+                ad["link"] = 'https://www.facebook.com/marketplace/item/' + adJson['node']['listing']['id']
                 print_scraper("FACEBOOK", "An ad fitting the criterias was found")
                 allAds.append(ad)
             except:
